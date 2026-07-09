@@ -7,7 +7,7 @@ domain: "Tool Design & MCP Integration (18%)"
 tags: [claude, tools, mcp, tool-design, error-handling, study-log]
 ---
 
-Week 2 of my [Claude Certified Architect — Foundations](/blog/week1-agentic-architecture) study log. Last week was the agentic loop and multi-agent orchestration. This week is **Tool Design & MCP Integration (18%)** — how you actually *define* the tools an agent uses, why one field matters more than all the rest, and how MCP turns a mess of custom integrations into something reusable.
+Week 2 of my [Claude Certified Architect — Foundations](/blog/cca-f-week-1-agentic-loop) study log. Last week was the agentic loop and multi-agent orchestration. This week is **Tool Design & MCP Integration (18%)** — how you actually *define* the tools an agent uses, why one field matters more than all the rest, and how MCP turns a mess of custom integrations into something reusable.
 
 There's a thread running through the whole domain, and it's the same idea from Week 1:
 
