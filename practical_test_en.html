@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCA-F Mock Test (English)</title>
+<style>
+  :root { --bg:#f4f1ea; --fg:#1a1a1a; --muted:#6b6b6b; --accent:#b5502f; --ok:#2e7d32; --no:#c0392b; --card:#fbfaf6; --line:#e0dccf; }
+  * { box-sizing: border-box; }
+  body { background:var(--bg); color:var(--fg); font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:0; padding:2rem 1rem; }
+  main { max-width:760px; margin:0 auto; }
+  h1 { font-size:1.6rem; margin:.2rem 0; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); font-size:.85rem; }
+  .intro { color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:1rem; margin-bottom:1.5rem; }
+  .q { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:1.1rem 1.25rem; margin:1rem 0; }
+  .q .tag { font-family:ui-monospace,monospace; font-size:.72rem; color:var(--accent); text-transform:uppercase; letter-spacing:.05em; }
+  .q .stem { font-weight:600; margin:.4rem 0 .8rem; }
+  label { display:block; padding:.5rem .7rem; margin:.35rem 0; border:1px solid var(--line); border-radius:7px; cursor:pointer; transition:background .12s; }
+  label:hover { background:#f0ede4; }
+  label.correct { border-color:var(--ok); background:#e8f5e9; }
+  label.wrong { border-color:var(--no); background:#fdecea; }
+  input[type=radio] { margin-right:.5rem; }
+  .exp { display:none; margin-top:.7rem; padding:.7rem .9rem; border-left:3px solid var(--accent); background:#faf6f0; font-size:.92rem; }
+  .exp.show { display:block; }
+  button { font:inherit; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:.7rem 1.4rem; cursor:pointer; margin:1rem 0; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  #score { font-size:1.2rem; font-weight:700; margin:1rem 0; padding:1rem; border:1px dashed var(--line); border-radius:8px; display:none; text-align:center; }
+  footer { color:var(--muted); font-size:.8rem; margin-top:2rem; border-top:1px solid var(--line); padding-top:1rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>CCA-F Mock Test</h1>
+  <div class="mono">Claude Certified Architect — Foundations · 15 questions · architectural judgment</div>
+  <p class="intro">Pick one answer per question, then hit <b>Grade my test</b>. Explanations reveal after grading. Passing the real exam is 720/1000 — aim for ≥80% here.</p>
+
+  <form id="test"></form>
+  <button type="button" id="grade">Grade my test</button>
+  <button type="button" id="reset" class="secondary">Reset</button>
+  <div id="score"></div>
+
+  <footer>Independent study resource. Not affiliated with Anthropic. Answers reflect the exam's stated knowledge domains.</footer>
+</main>
+
+<script>
+const Q = [
+ {d:"Domain 1", q:"A minimal agentic loop terminates by checking <code>if 'done' in response.text</code>. It sometimes exits while the model still wants to call a tool, and sometimes loops after the model has answered. Best fix?",
+  o:["Expand the keyword list (add 'finished', 'complete', …)","Add a hard max-turn cap and break on it","Terminate on <code>stop_reason == 'end_turn'</code> instead of parsing text","Clear the message history each turn"],
+  a:2, e:"Bind control flow to the deterministic <code>stop_reason</code>, not probabilistic text. A max-turn cap is only a safety backstop; keyword lists never cover all phrasings and can false-match reasoning text."},
+
+ {d:"Domain 1", q:"In a coordinator+subagent research system, the 'compliance' subagent keeps mis-citing the 'risk' subagent's findings, as if guessing them. Root cause?",
+  o:["Subagents should communicate peer-to-peer and that channel is off","Subagent context isn't inherited — it can't see the risk subagent's output unless the coordinator forwards it","Its <code>stop_reason</code> is stuck on tool_use","It should use fork_session to copy the risk subagent's session"],
+  a:1, e:"Each subagent is an independent call that only sees what the coordinator injects. The fix is explicit forwarding by the coordinator — NOT opening peer-to-peer channels (an anti-pattern)."},
+
+ {d:"Domain 1", q:"A coordinator must research 3 independent companies, but runs them one at a time, waiting for each. It's slow. Best assessment?",
+  o:["Correct — subagents must run sequentially","Independent tasks should be spawned in parallel in a single turn","Use one subagent to do all three to save overhead","It's slow because peer-to-peer links are off"],
+  a:1, e:"Independent tasks → parallel spawn (wall-clock ≈ the slowest one). Dependency is the deciding factor: no dependency → parallel; B needs A → serial."},
+
+ {d:"Domain 1", q:"A tool call fails due to a network timeout. The harness catches it. Most correct next step?",
+  o:["Discard the failure; the model will auto-retry","Propagate it honestly to the model with structured info (e.g. transient, retryable)","Crash the whole workflow to be safe","Fabricate a success result to keep the flow going"],
+  a:1, e:"The model is blind — it only knows what the harness reports. Propagate honestly and structured. Crashing everything and faking success are both anti-patterns."},
+
+ {d:"Domain 2", q:"An agent has <code>send_message</code> ('Send a message') and <code>send_email</code> ('Send a message'). Asked to email someone, it sometimes fires the chat tool. Root fix?",
+  o:["Add a system prompt: 'always use send_email for emails'","Delete send_message","Rewrite both descriptions so the boundary is clear (email→address vs instant chat)","Merge them into one 'send' tool"],
+  a:2, e:"The descriptions overlap, so the model can't distinguish them. Fix the descriptions. Stern prompts are fragile patches; deleting throws away a capability; merging makes the model guess more."},
+
+ {d:"Domain 2", q:"You need to find every place a function <code>deprecated_api</code> is called across an unfamiliar codebase. Best built-in tool?",
+  o:["Glob — filename patterns","Grep — search by content","Bash — run a command to delete the calls","Write — create a results file"],
+  a:1, e:"Finding where something is USED = search by content = Grep. Glob is for filename patterns; deleting isn't asked (and is destructive during exploration)."},
+
+ {d:"Domain 2", q:"You configured an MCP server and it works for you, but a teammate clones the repo and doesn't have it. Most likely cause?",
+  o:["You put it in <code>~/.claude.json</code> (user-level, not shared) instead of <code>.mcp.json</code> (project-level)","The MCP server crashed","You hardcoded a secret","Grep vs Glob confusion"],
+  a:0, e:"User-level config isn't shared via version control. To share with the team, put it in project-level <code>.mcp.json</code> (and use ${ENV} placeholders for secrets)."},
+
+ {d:"Domain 2", q:"A refund tool fails: 'order is 90 days old, past the 30-day refund window.' Best error classification?",
+  o:["transient, isRetryable=true","business, isRetryable=false — explain the reason","validation, isRetryable=false — bad input format","permission, isRetryable=false — no refund rights"],
+  a:1, e:"It's a business rule, not a glitch/input error/permission issue. Retrying won't change the rule; report it and explain (or escalate). Only transient errors are worth retrying."},
+
+ {d:"Domain 3", q:"A new teammate clones the repo but never receives a coding-standard instruction you rely on. Where was it most likely placed?",
+  o:["Project-level CLAUDE.md","User-level CLAUDE.md (personal, not shared via version control)","A path-level rule","A slash command"],
+  a:1, e:"User-level CLAUDE.md is personal and doesn't travel with the repo. Team-wide instructions belong in the project-level CLAUDE.md."},
+
+ {d:"Domain 3", q:"A custom skill has lengthy, detailed steps. Even when the current task is unrelated, its full content shouldn't sit in context. Which mechanism achieves 'load only when relevant'?",
+  o:["allowed-tools","context: fork","Progressive disclosure — only the description stays in context; full SKILL.md loads on demand","argument-hint"],
+  a:2, e:"Progressive disclosure lazily loads the full skill based on its description. <code>context: fork</code> is about isolated execution (a different thing); allowed-tools restricts tools; argument-hint is parameter help."},
+
+ {d:"Domain 3", q:"You're wiring Claude Code into a CI pipeline for automated review. Which combination fits best?",
+  o:["Interactive mode with free-form text output","<code>-p</code> (headless) + <code>--output-format json</code>, review criteria in CLAUDE.md","Run it only on the developer's laptop","Let the same session write and review the code"],
+  a:1, e:"CI needs non-interactive (-p, won't hang) and machine-readable output (--output-format json), with criteria in CLAUDE.md. An independent review instance beats self-review."},
+
+ {d:"Domain 4", q:"You extract fields from messy documents via tool_use + JSON schema. Some documents lack a 'phone' field entirely. Best design?",
+  o:["Force 'phone' as required so the model always fills it","Make 'phone' nullable/optional so the model reports missing instead of hallucinating; note that retry won't recover truly-absent info","Retry until the model produces a phone number","Lower max_tokens"],
+  a:1, e:"Nullable fields prevent hallucination. Validation-retry helps with format errors, but if the info simply isn't in the document, retrying can't conjure it."},
+
+ {d:"Domain 4", q:"A code-review agent generates code and reviews it in the same session, and misses its own bugs. Best improvement?",
+  o:["Ask it to 'be more careful'","Use an independent review instance separate from the one that wrote the code","Increase max_tokens","Disable thinking"],
+  a:1, e:"A model reviewing its own output in the same context misses its own mistakes; an independent review instance is more reliable."},
+
+ {d:"Domain 5", q:"A customer-support agent is deciding when to escalate to a human. Which is a reliable trigger?",
+  o:["The customer's message sounds emotional/angry","The model's self-reported confidence is low","The customer explicitly asks for a human, or policy doesn't cover the case, or repeated attempts make no progress","The conversation is longer than 5 turns"],
+  a:2, e:"Escalate on concrete, checkable conditions. Emotional tone and self-reported confidence are unreliable signals and shouldn't be the trigger."},
+
+ {d:"Domain 5", q:"An extraction pipeline reports '97% overall accuracy,' but a downstream team keeps hitting errors on one document type. Best practice?",
+  o:["Trust the 97% aggregate","Break accuracy down by document type/field, and calibrate confidence thresholds against a labeled validation set with stratified sampling","Raise max_tokens","Only review low-confidence outputs"],
+  a:1, e:"Aggregate accuracy hides systematic per-type/field errors. Break it down, calibrate on a labeled set, and stratified-sample even high-confidence outputs to catch new failure modes."},
+];
+
+const form = document.getElementById('test');
+Q.forEach((item, i) => {
+  const div = document.createElement('div');
+  div.className = 'q';
+  div.innerHTML = `<div class="tag">${item.d} · Q${i+1}</div><div class="stem">${item.q}</div>` +
+    item.o.map((opt, j) => `<label data-q="${i}" data-o="${j}"><input type="radio" name="q${i}" value="${j}">${opt}</label>`).join('') +
+    `<div class="exp" id="exp${i}"><b>Answer: ${String.fromCharCode(65+item.a)}.</b> ${item.e}</div>`;
+  form.appendChild(div);
+});
+
+document.getElementById('grade').onclick = () => {
+  let correct = 0;
+  Q.forEach((item, i) => {
+    const chosen = form.querySelector(`input[name="q${i}"]:checked`);
+    document.querySelectorAll(`label[data-q="${i}"]`).forEach(l => l.classList.remove('correct','wrong'));
+    const correctLabel = form.querySelector(`label[data-q="${i}"][data-o="${item.a}"]`);
+    correctLabel.classList.add('correct');
+    if (chosen) {
+      const pick = parseInt(chosen.value, 10);
+      if (pick === item.a) correct++;
+      else form.querySelector(`label[data-q="${i}"][data-o="${pick}"]`).classList.add('wrong');
+    }
+    document.getElementById('exp'+i).classList.add('show');
+  });
+  const pct = Math.round(correct / Q.length * 100);
+  const s = document.getElementById('score');
+  s.style.display = 'block';
+  s.textContent = `Score: ${correct}/${Q.length}  (${pct}%)  ${pct>=80 ? '✅ on track' : '— keep reviewing'}`;
+  s.scrollIntoView({behavior:'smooth', block:'center'});
+};
+
+document.getElementById('reset').onclick = () => location.reload();
+</script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCA-F 模拟测试（中文）</title>
+<style>
+  :root { --bg:#f4f1ea; --fg:#1a1a1a; --muted:#6b6b6b; --accent:#b5502f; --ok:#2e7d32; --no:#c0392b; --card:#fbfaf6; --line:#e0dccf; }
+  * { box-sizing: border-box; }
+  body { background:var(--bg); color:var(--fg); font:16px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif; margin:0; padding:2rem 1rem; }
+  main { max-width:760px; margin:0 auto; }
+  h1 { font-size:1.6rem; margin:.2rem 0; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); font-size:.85rem; }
+  .intro { color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:1rem; margin-bottom:1.5rem; }
+  .q { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:1.1rem 1.25rem; margin:1rem 0; }
+  .q .tag { font-family:ui-monospace,monospace; font-size:.72rem; color:var(--accent); letter-spacing:.05em; }
+  .q .stem { font-weight:600; margin:.4rem 0 .8rem; }
+  label { display:block; padding:.5rem .7rem; margin:.35rem 0; border:1px solid var(--line); border-radius:7px; cursor:pointer; transition:background .12s; }
+  label:hover { background:#f0ede4; }
+  label.correct { border-color:var(--ok); background:#e8f5e9; }
+  label.wrong { border-color:var(--no); background:#fdecea; }
+  input[type=radio] { margin-right:.5rem; }
+  .exp { display:none; margin-top:.7rem; padding:.7rem .9rem; border-left:3px solid var(--accent); background:#faf6f0; font-size:.92rem; }
+  .exp.show { display:block; }
+  button { font:inherit; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:.7rem 1.4rem; cursor:pointer; margin:1rem 0; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  #score { font-size:1.2rem; font-weight:700; margin:1rem 0; padding:1rem; border:1px dashed var(--line); border-radius:8px; display:none; text-align:center; }
+  footer { color:var(--muted); font-size:.8rem; margin-top:2rem; border-top:1px solid var(--line); padding-top:1rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>CCA-F 模拟测试</h1>
+  <div class="mono">Claude Certified Architect — Foundations · 15 题 · 考架构判断力</div>
+  <p class="intro">每题选一个答案，然后点<b>批改</b>。批改后显示解析。真实考试 720/1000 及格——这里目标 ≥80%。</p>
+
+  <form id="test"></form>
+  <button type="button" id="grade">批改</button>
+  <button type="button" id="reset" class="secondary">重置</button>
+  <div id="score"></div>
+
+  <footer>独立备考资料，与 Anthropic 无隶属关系。答案依据官方五大知识域。</footer>
+</main>
+
+<script>
+const Q = [
+ {d:"知识域 1", q:"一个最小 agentic loop 用 <code>if '完成' in response.text</code> 判断终止。有时模型还想调工具就退出了，有时模型已经答完却还在循环。最佳修法？",
+  o:["扩充关键词列表（加'结束''搞定'…）","加一个最大轮数硬上限并据此 break","改成判断 <code>stop_reason == 'end_turn'</code>，而不是解析文本","每轮清空对话历史"],
+  a:2, e:"控制流要绑到确定的 <code>stop_reason</code>，不是概率文本。最大轮数只是安全兜底；关键词永远列不全，还可能误匹配思考文本。"},
+
+ {d:"知识域 1", q:"coordinator+subagent 研究系统里，'合规'subagent 老是张冠李戴地引用'风险'subagent 的发现，像在凭空猜。根因？",
+  o:["subagent 之间该点对点通信，而你没开这个通道","subagent 上下文不继承——除非 coordinator 转发，否则它看不到风险 subagent 的输出","它的 <code>stop_reason</code> 卡在 tool_use","应该用 fork_session 复制风险 subagent 的会话"],
+  a:1, e:"每个 subagent 是独立调用，只看得到 coordinator 注入的内容。修法是 coordinator 显式转发——不是开点对点通道（反模式）。"},
+
+ {d:"知识域 1", q:"coordinator 要调研 3 家互不相关的公司，却一家一家来、逐个等待，很慢。最佳判断？",
+  o:["正确——subagent 必须串行","互不依赖的任务应在同一轮并行 spawn","用一个 subagent 依次做三家以省开销","慢是因为没开点对点直连"],
+  a:1, e:"互不依赖→并行 spawn（总耗时≈最慢那个）。看依赖：无依赖→并行；B 需要 A→串行。"},
+
+ {d:"知识域 1", q:"一次工具调用因网络超时失败，宿主程序捕获到了。最正确的下一步？",
+  o:["丢弃失败信息，模型会自动重试","如实、结构化地回传给模型（如 transient、可重试）","为安全起见让整个工作流崩溃","编造一个成功结果让流程继续"],
+  a:1, e:"模型是瞎子，只知道程序回传的东西。要如实结构化回传。崩掉全流程和假装成功都是反模式。"},
+
+ {d:"知识域 2", q:"agent 有 <code>send_message</code>（'发送消息'）和 <code>send_email</code>（'发送消息'）。让它发邮件时它有时调了聊天工具。治根修法？",
+  o:["加系统提示：'发邮件务必用 send_email'","删掉 send_message","改写两个描述把边界写清（邮件→邮箱地址 vs 即时聊天）","合并成一个 'send' 工具"],
+  a:2, e:"两个描述重叠，模型分不清。修描述。严厉提示是脆弱补丁；删工具丢能力；合并让模型更要猜。"},
+
+ {d:"知识域 2", q:"要在陌生代码库里找出函数 <code>deprecated_api</code> 被调用的所有地方。最佳内置工具？",
+  o:["Glob——按文件名模式","Grep——按内容搜索","Bash——跑命令直接删掉这些调用","Write——新建结果文件"],
+  a:1, e:"找'哪里被用到'=按内容搜=Grep。Glob 是按文件名；删除既非所求，探索阶段动手删还危险。"},
+
+ {d:"知识域 2", q:"你配了一个 MCP server 自己能用，但队友 clone 仓库后没有。最可能原因？",
+  o:["你放进了 <code>~/.claude.json</code>（用户级，不共享），而非 <code>.mcp.json</code>（项目级）","MCP server 崩了","你把密钥写死了","Grep 和 Glob 搞混了"],
+  a:0, e:"用户级配置不随版本控制共享。要给团队用，放项目级 <code>.mcp.json</code>（密钥用 ${环境变量} 占位）。"},
+
+ {d:"知识域 2", q:"退款工具失败：'订单已下单 90 天，超过 30 天退款期限。'最佳错误分类？",
+  o:["transient，isRetryable=true","business，isRetryable=false——说明原因","validation，isRetryable=false——输入格式错","permission，isRetryable=false——无退款权限"],
+  a:1, e:"这是业务规则，不是故障/输入错/权限问题。重试改变不了规则；应说明或升级。只有 transient 值得重试。"},
+
+ {d:"知识域 3", q:"新同事 clone 仓库后，始终没收到你依赖的一条编码规范指令。它最可能被放在哪一级？",
+  o:["项目级 CLAUDE.md","用户级 CLAUDE.md（个人，不随版本控制共享）","路径级规则","一个 slash command"],
+  a:1, e:"用户级 CLAUDE.md 是个人的、不随仓库走。团队通用指令应放项目级 CLAUDE.md。"},
+
+ {d:"知识域 3", q:"一个自定义 skill 有大量详细步骤。即使当前任务无关，它的完整内容也不该占着上下文。哪种机制实现'相关时才加载'？",
+  o:["allowed-tools","context: fork","渐进式披露——平时只有 description 常驻，完整 SKILL.md 按需加载","argument-hint"],
+  a:2, e:"渐进式披露按描述懒加载完整 skill。<code>context: fork</code> 是隔离运行（另一回事）；allowed-tools 限制工具；argument-hint 是参数提示。"},
+
+ {d:"知识域 3", q:"你要把 Claude Code 接入 CI 做自动评审。哪种组合最合适？",
+  o:["交互模式 + 自由文本输出","<code>-p</code>（非交互）+ <code>--output-format json</code>，评审标准写进 CLAUDE.md","只在开发者本机跑","让同一会话既写代码又评审"],
+  a:1, e:"CI 需要非交互（-p，不卡）和机器可解析输出（--output-format json），标准写进 CLAUDE.md。独立评审实例胜过自我评审。"},
+
+ {d:"知识域 4", q:"你用 tool_use + JSON schema 从杂乱文档抽字段，有些文档根本没有'电话'字段。最佳设计？",
+  o:["把'电话'设为必填，逼模型总是填","把'电话'设 nullable/optional，让模型如实报缺失、别幻觉；注意真缺失的信息重试也补不回来","一直重试直到模型给出电话号","调低 max_tokens"],
+  a:1, e:"nullable 字段防幻觉。校验-重试对格式错有效；但信息本就不在文档里，重试变不出来。"},
+
+ {d:"知识域 4", q:"一个代码评审 agent 在同一会话里既生成代码又评审，漏掉了自己的 bug。最佳改进？",
+  o:["让它'更仔细些'","用一个独立的评审实例，与写代码的分开","调大 max_tokens","关闭 thinking"],
+  a:1, e:"模型在同一上下文里审自己的输出会漏掉自己的错；独立评审实例更可靠。"},
+
+ {d:"知识域 5", q:"客服 agent 在判断何时升级给人工。哪个是可靠的触发条件？",
+  o:["客户消息听起来很情绪化/愤怒","模型自报的置信度很低","客户明确要求人工，或政策没覆盖此情况，或反复尝试无进展","对话超过 5 轮"],
+  a:2, e:"用具体可判断的条件升级。情绪化语气和自报置信度都是不可靠信号，不该作为触发。"},
+
+ {d:"知识域 5", q:"抽取 pipeline 报告'整体准确率 97%'，但下游团队在某一类文档上老出错。最佳做法？",
+  o:["信任 97% 这个聚合值","按文档类型/字段拆分准确率，用带标签的验证集 + 分层抽样校准置信度阈值","调大 max_tokens","只复核低置信度输出"],
+  a:1, e:"聚合准确率会掩盖某类型/字段的系统性错误。要拆分统计、用带标签集校准，并对高置信度输出也做分层抽查。"},
+];
+
+const form = document.getElementById('test');
+Q.forEach((item, i) => {
+  const div = document.createElement('div');
+  div.className = 'q';
+  div.innerHTML = `<div class="tag">${item.d} · 第${i+1}题</div><div class="stem">${item.q}</div>` +
+    item.o.map((opt, j) => `<label data-q="${i}" data-o="${j}"><input type="radio" name="q${i}" value="${j}">${String.fromCharCode(65+j)}. ${opt}</label>`).join('') +
+    `<div class="exp" id="exp${i}"><b>答案：${String.fromCharCode(65+item.a)}。</b> ${item.e}</div>`;
+  form.appendChild(div);
+});
+
+document.getElementById('grade').onclick = () => {
+  let correct = 0;
+  Q.forEach((item, i) => {
+    const chosen = form.querySelector(`input[name="q${i}"]:checked`);
+    document.querySelectorAll(`label[data-q="${i}"]`).forEach(l => l.classList.remove('correct','wrong'));
+    form.querySelector(`label[data-q="${i}"][data-o="${item.a}"]`).classList.add('correct');
+    if (chosen) {
+      const pick = parseInt(chosen.value, 10);
+      if (pick === item.a) correct++;
+      else form.querySelector(`label[data-q="${i}"][data-o="${pick}"]`).classList.add('wrong');
+    }
+    document.getElementById('exp'+i).classList.add('show');
+  });
+  const pct = Math.round(correct / Q.length * 100);
+  const s = document.getElementById('score');
+  s.style.display = 'block';
+  s.textContent = `得分：${correct}/${Q.length}（${pct}%）  ${pct>=80 ? '✅ 状态不错' : '— 继续复习'}`;
+  s.scrollIntoView({behavior:'smooth', block:'center'});
+};
+
+document.getElementById('reset').onclick = () => location.reload();
+</script>
+</body>
+</html>

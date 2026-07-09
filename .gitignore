@@ -1,0 +1,25 @@
+# ── Secrets / sensitive (never commit) ──
+.env
+.env.*
+!.env.example
+
+# ── Personal study artifacts (kept private) ──
+weak-areas.md
+.claude/settings.local.json
+
+# ── Copyrighted material — do not redistribute ──
+*.pdf
+
+# ── Binary / working files ──
+*.docx
+~$*
+.DS_Store
+
+# ── Python ──
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ── Editor ──
+.vscode/
